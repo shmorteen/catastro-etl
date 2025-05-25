@@ -5,11 +5,23 @@ import time
 import pandas as pd
 import requests
 import zipfile
+import logging
 import geopandas as gpd
 from datetime import datetime
 from sqlalchemy import create_engine, text, inspect
 from geoalchemy2 import Geometry
 import fiona
+
+
+# --- Logging Setup ---
+os.makedirs("logs", exist_ok=True)
+logging.basicConfig(
+    filename="logs/catastro_pipeline.log",
+    filemode="a",
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
 
 # -----------------------------
 # Configuration & Constants
@@ -91,7 +103,7 @@ POSTGIS_CONN = "postgresql+psycopg2://username:password@localhost:5432/postgis_c
 PARCEL_TABLE = "catastro_parcels"
 UNIT_TABLE = "catastro_units"
 SLEEP_BETWEEN_REQUESTS = 15
-BATCH_SAVE_INTERVAL = 10
+BATCH_SAVE_INTERVAL = 100
 
 API_URL = "https://ovc.catastro.meh.es/OVCServWeb/OVCWcfCallejero/COVCCallejero.svc/json/Consulta_DNPRC?RefCat={refcat}"
 HEADERS = {
@@ -107,75 +119,77 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 # Connect to PostGIS
 engine = create_engine(POSTGIS_CONN)
 
-# -----------------------------
-# Utility Functions
-# -----------------------------
 def download_and_extract(url, extract_to):
-    zip_path = os.path.join(extract_to, os.path.basename(url))
-    response = requests.get(url)
-    with open(zip_path, "wb") as f:
-        f.write(response.content)
-    with zipfile.ZipFile(zip_path, "r") as zip_ref:
-        zip_ref.extractall(extract_to)
-    return next((os.path.join(extract_to, f) for f in os.listdir(extract_to) if f.endswith(".gml")), None)
+    """
+    Downloads and extracts a ZIP archive from the given URL into the specified directory.
+    Returns the path to the first .gml file extracted (or None if failure).
+    """
+    try:
+        zip_path = os.path.join(extract_to, os.path.basename(url))
+        response = requests.get(url)
+        response.raise_for_status()
+        with open(zip_path, "wb") as f:
+            f.write(response.content)
+        with zipfile.ZipFile(zip_path, "r") as zip_ref:
+            zip_ref.extractall(extract_to)
+        return next((os.path.join(extract_to, f) for f in os.listdir(extract_to) if f.endswith(".gml")), None)
+    except Exception as e:
+        logger.error(f"Failed to download or extract {url}: {e}")
+        return None
 
-# -----------------------------
-# Main Parcel Processing
-# -----------------------------
 def process_municipality(name, code):
-    print(f"\n🔄 Processing municipality: {name} ({code})")
-    layer_dir = os.path.join(GML_DIR, name, "CP")
-    os.makedirs(layer_dir, exist_ok=True)
-    url = BASE_URL.format(layer="CadastralParcels", code=code, name=name, layer_code="CP")
-    print("⬇️ Downloading CadastralParcels GML...")
-    gml_path = download_and_extract(url, layer_dir)
+    """
+    Processes a single municipality: downloads, extracts, filters, and inserts cadastral parcel data.
+    """
+    try:
+        logger.info(f"Processing municipality: {name} ({code})")
+        layer_dir = os.path.join(GML_DIR, name, "CP")
+        os.makedirs(layer_dir, exist_ok=True)
+        url = BASE_URL.format(layer="CadastralParcels", code=code, name=name, layer_code="CP")
+        gml_path = download_and_extract(url, layer_dir)
+        if not gml_path:
+            return
 
-    gdf_cp = gpd.read_file(gml_path).to_crs(epsg=25830)
-    gdf_cp["referencia_catastral"] = gdf_cp["nationalCadastralReference"]
-    gdf_cp["municipio"] = name
-    gdf_cp["codigo_municipio"] = code
-    gdf_cp["provincia"] = "Illes Balears"
-    gdf_cp["codigo_provincia"] = "07"
-    gdf_cp["last_update"] = datetime.now()
+        gdf_cp = gpd.read_file(gml_path).to_crs(epsg=25830)
+        gdf_cp["referencia_catastral"] = gdf_cp["nationalCadastralReference"]
+        gdf_cp["municipio"] = name
+        gdf_cp["codigo_municipio"] = code
+        gdf_cp["provincia"] = "Illes Balears"
+        gdf_cp["codigo_provincia"] = "07"
+        gdf_cp["last_update"] = datetime.now()
 
-    gdf_cp = gdf_cp[[
-        "referencia_catastral", "municipio", "codigo_municipio", "provincia",
-        "codigo_provincia", "geometry", "last_update"
-    ]]
+        # Select only required columns
+        gdf_cp = gdf_cp[[
+            "referencia_catastral", "municipio", "codigo_municipio", "provincia",
+            "codigo_provincia", "geometry", "last_update"
+        ]]
 
-    existing_refs = pd.read_sql(f"SELECT referencia_catastral FROM {PARCEL_TABLE}", engine)
-    gdf_cp = gdf_cp[~gdf_cp["referencia_catastral"].isin(existing_refs["referencia_catastral"])]
+        # Deduplicate against existing DB records
+        existing_refs = pd.read_sql(f"SELECT referencia_catastral FROM {PARCEL_TABLE}", engine)
+        gdf_cp = gdf_cp[~gdf_cp["referencia_catastral"].isin(existing_refs["referencia_catastral"])]
 
-    gdf_cp.to_postgis(PARCEL_TABLE, con=engine, if_exists='append', index=False)
-    gdf_cp.to_file(os.path.join(OUTPUT_DIR, f"{name}_catastro_parcels.geojson"), driver="GeoJSON")
+        # Insert into PostGIS and export to GeoJSON
+        gdf_cp.to_postgis(PARCEL_TABLE, con=engine, if_exists='append', index=False)
+        gdf_cp.to_file(os.path.join(OUTPUT_DIR, f"{name}_catastro_parcels.geojson"), driver="GeoJSON")
+        logger.info(f"Inserted {len(gdf_cp)} new parcels for {name}.")
+    except Exception as e:
+        logger.error(f"Error processing municipality {name}: {e}")
 
-# -----------------------------
-# Unit Data Extraction
-# -----------------------------
-def fetch_units_for_parcel(refcat, retries=3, delay=5):
-    for attempt in range(retries):
-        try:
-            response = requests.get(API_URL.format(refcat=refcat), headers=HEADERS, timeout=15)
-            if response.status_code == 200:
-                data = response.json()
-                units = data.get("consulta_dnprcResult", {}).get("lrcdnp", {}).get("rcdnp", [])
-                result = []
-                if units:
-                    for unit in units:
-                        result.append(extract_unit(unit))
-                    return result
-                unit = data.get("consulta_dnprcResult", {}).get("bico", {}).get("bi", {})
-                if unit:
-                    return [extract_unit(unit, single=True)]
-            elif response.status_code == 403:
-                print(f"❌ Rate limited at {refcat}. Retrying in {delay} seconds...")
-                time.sleep(delay)
-        except Exception as e:
-            print(f"⚠️ Error fetching {refcat}: {e}")
-        time.sleep(delay * (2 ** attempt))
-    return []
+def safe_float(value):
+    """
+    Converts a string value with comma decimal separator into float safely.
+    Returns None if input is invalid.
+    """
+    try:
+        return float(str(value).replace(",", ".")) if value not in [None, ""] else None
+    except:
+        return None
 
 def extract_unit(unit, single=False):
+    """
+    Extracts and transforms unit-level information into a dictionary for either
+    a single-unit response or multi-unit list format from Catastro API.
+    """
     if single:
         ref = unit.get("idbi", {}).get("rc", {})
         dt = unit.get("dt", {})
@@ -219,45 +233,69 @@ def extract_unit(unit, single=False):
             "last_update": pd.Timestamp.now()
         }
 
-def safe_float(value):
-    try:
-        return float(str(value).replace(",", ".")) if value not in [None, ""] else None
-    except:
-        return None
+def fetch_units_for_parcel(refcat, retries=3, delay=5):
+    """
+    Makes a request to the Catastro API for a given parcel reference.
+    Handles retries, 403 responses, and JSON structure variations.
+    """
+    for attempt in range(retries):
+        try:
+            response = requests.get(API_URL.format(refcat=refcat), headers=HEADERS, timeout=15)
+            if response.status_code == 200:
+                data = response.json()
+                result = []
+                units = data.get("consulta_dnprcResult", {}).get("lrcdnp", {}).get("rcdnp", [])
+                if units:
+                    return [extract_unit(u) for u in units]
+                unit = data.get("consulta_dnprcResult", {}).get("bico", {}).get("bi", {})
+                if unit:
+                    return [extract_unit(unit, single=True)]
+            elif response.status_code == 403:
+                logger.warning(f"Rate limited for {refcat}, sleeping {delay}s.")
+                time.sleep(delay)
+        except Exception as e:
+            logger.error(f"Failed to fetch units for {refcat}: {e}")
+        time.sleep(delay * (2 ** attempt))
+    return []
 
-# -----------------------------
-# Batch Unit Import
-# -----------------------------
 def extract_units(municipality):
-    with engine.connect() as conn:
-        parcels = pd.read_sql(text(f"SELECT referencia_catastral FROM {PARCEL_TABLE} WHERE municipio = :municipio"), conn, params={"municipio": municipality})
-        inspector = inspect(engine)
-        existing_refs = set()
-        if inspector.has_table(UNIT_TABLE):
-            try:
-                df = pd.read_sql(f"SELECT DISTINCT parcel_ref FROM {UNIT_TABLE}", conn)
-                existing_refs = set(df["parcel_ref"].dropna())
-            except:
-                pass
-        refs = [r for r in parcels["referencia_catastral"] if r not in existing_refs]
+    """
+    For a given municipality, fetches unit-level data for all parcels
+    not yet processed and stores them in the database.
+    """
+    try:
+        with engine.connect() as conn:
+            parcels = pd.read_sql(
+                text(f"SELECT referencia_catastral FROM {PARCEL_TABLE} WHERE municipio = :municipio"),
+                conn, params={"municipio": municipality}
+            )
+            inspector = inspect(engine)
+            existing_refs = set()
+            if inspector.has_table(UNIT_TABLE):
+                try:
+                    df = pd.read_sql(f"SELECT DISTINCT parcel_ref FROM {UNIT_TABLE}", conn)
+                    existing_refs = set(df["parcel_ref"].dropna())
+                except Exception as e:
+                    logger.warning(f"Could not load existing unit refs: {e}")
+            refs = [r for r in parcels["referencia_catastral"] if r not in existing_refs]
 
-    batch = []
-    for i, refcat in enumerate(refs):
-        print(f"🔍 Fetching units for {refcat} ({i+1}/{len(refs)})")
-        batch.extend(fetch_units_for_parcel(refcat))
-        time.sleep(SLEEP_BETWEEN_REQUESTS)
-        if len(batch) >= BATCH_SAVE_INTERVAL:
+        batch = []
+        for i, refcat in enumerate(refs):
+            logger.info(f"Fetching units for {refcat} ({i+1}/{len(refs)})")
+            batch.extend(fetch_units_for_parcel(refcat))
+            time.sleep(SLEEP_BETWEEN_REQUESTS)
+            if len(batch) >= BATCH_SAVE_INTERVAL:
+                pd.DataFrame(batch).to_sql(UNIT_TABLE, con=engine, if_exists='append', index=False)
+                logger.info(f"Inserted {len(batch)} unit records.")
+                batch = []
+
+        if batch:
             pd.DataFrame(batch).to_sql(UNIT_TABLE, con=engine, if_exists='append', index=False)
-            print(f"💾 Saved {len(batch)} records to {UNIT_TABLE}")
-            batch = []
+            logger.info(f"Inserted remaining {len(batch)} unit records.")
+    except Exception as e:
+        logger.error(f"Failed unit extraction for {municipality}: {e}")
 
-    if batch:
-        pd.DataFrame(batch).to_sql(UNIT_TABLE, con=engine, if_exists='append', index=False)
-        print(f"💾 Saved remaining {len(batch)} records to {UNIT_TABLE}")
-
-# -----------------------------
 # Entrypoint
-# -----------------------------
 if __name__ == "__main__":
     for name, code in MUNICIPALITIES.items():
         process_municipality(name, code)

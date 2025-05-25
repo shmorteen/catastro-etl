@@ -1,0 +1,21 @@
+import logging
+import os
+
+# Set up a logger
+log_dir = "logs"
+os.makedirs(log_dir, exist_ok=True)
+
+log_path = os.path.join(log_dir, "catastro_pipeline.log")
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.FileHandler(log_path),
+        logging.StreamHandler()
+    ]
+)
+
+logger = logging.getLogger("catastro_pipeline")
+
+logger.info("✅ Logging initialized successfully.")
