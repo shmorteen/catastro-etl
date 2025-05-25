@@ -1,0 +1,8 @@
+sqlalchemy
+psycopg2-binary
+dotenv
+geopandas
+requests
+fiona
+shapely
+geoalchemy2
