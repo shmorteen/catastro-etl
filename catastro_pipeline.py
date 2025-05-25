@@ -159,15 +159,15 @@ def process_municipality(name, code):
         gdf_cp["last_update"] = datetime.now()
 
             # Ensure projection and calculate area
-        if gdf.crs.to_epsg() != 25830:
-            print(f"🔄 Reprojecting from {gdf.crs.to_epsg()} to EPSG:25830...")
-            gdf_proj = gdf.to_crs(epsg=25830)
-            gdf["superficie_parcela"] = gdf_proj.geometry.area
-            gdf = gdf.to_crs(epsg=25830)
+        if gdf_cp.crs.to_epsg() != 25830:
+            print(f"🔄 Reprojecting from {gdf_cp.crs.to_epsg()} to EPSG:25830...")
+            gdf_proj = gdf_cp.to_crs(epsg=25830)
+            gdf_cp["superficie_parcela"] = gdf_proj.geometry.area
+            gdf_cp = gdf_cp.to_crs(epsg=25830)
         else:
-            gdf["superficie_parcela"] = gdf.geometry.area
+            gdf_cp["superficie_parcela"] = gdf_cp.geometry.area
         
-        gdf["uso_parcela"] = gdf.get("landUse", None)
+        gdf_cp["uso_parcela"] = gdf_cp.get("landUse", None)
 
         gdf_cp = gdf_cp[[
             "referencia_catastral", "municipio", "codigo_municipio", "provincia",
