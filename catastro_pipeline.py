@@ -66,7 +66,7 @@ MUNICIPALITIES = {
     "ES MERCADAL": "07037",
     "MONTUIRI": "07038",
     "MURO": "07039",
-    # "PALMA DE MALLORCA": "07040",
+    "PALMA": "07040",
     "PETRA": "07041",
     # "POLLENÃ‡A": "07042",
     "PORRERES": "07043",
@@ -166,7 +166,16 @@ def process_municipality(name, code):
 
         # Deduplicate against existing DB records
         existing_refs = pd.read_sql(f"SELECT referencia_catastral FROM {PARCEL_TABLE}", engine)
+        # Ensure type and formatting consistency
+        gdf_cp["referencia_catastral"] = gdf_cp["referencia_catastral"].astype(str).str.strip()
+        existing_refs["referencia_catastral"] = existing_refs["referencia_catastral"].astype(str).str.strip()
+
+        # Remove duplicates within the new dataset first
+        gdf_cp = gdf_cp.drop_duplicates(subset="referencia_catastral")
+
+        # Drop rows already in DB
         gdf_cp = gdf_cp[~gdf_cp["referencia_catastral"].isin(existing_refs["referencia_catastral"])]
+
 
         # Insert into PostGIS and export to GeoJSON
         gdf_cp.to_postgis(PARCEL_TABLE, con=engine, if_exists='append', index=False)
