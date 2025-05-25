@@ -158,10 +158,20 @@ def process_municipality(name, code):
         gdf_cp["codigo_provincia"] = "07"
         gdf_cp["last_update"] = datetime.now()
 
-        # Select only required columns
+            # Ensure projection and calculate area
+        if gdf.crs.to_epsg() != 25830:
+            print(f"🔄 Reprojecting from {gdf.crs.to_epsg()} to EPSG:25830...")
+            gdf_proj = gdf.to_crs(epsg=25830)
+            gdf["superficie_parcela"] = gdf_proj.geometry.area
+            gdf = gdf.to_crs(epsg=25830)
+        else:
+            gdf["superficie_parcela"] = gdf.geometry.area
+        
+        gdf["uso_parcela"] = gdf.get("landUse", None)
+
         gdf_cp = gdf_cp[[
             "referencia_catastral", "municipio", "codigo_municipio", "provincia",
-            "codigo_provincia", "geometry", "last_update"
+            "codigo_provincia", "geometry", "superficie_parcela", "uso_parcela"
         ]]
 
         # Deduplicate against existing DB records
@@ -175,7 +185,6 @@ def process_municipality(name, code):
 
         # Drop rows already in DB
         gdf_cp = gdf_cp[~gdf_cp["referencia_catastral"].isin(existing_refs["referencia_catastral"])]
-
 
         # Insert into PostGIS and export to GeoJSON
         gdf_cp.to_postgis(PARCEL_TABLE, con=engine, if_exists='append', index=False)
