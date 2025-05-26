@@ -91,7 +91,7 @@ MUNICIPALITIES = {
     "SON SERVERA": "07062",
     "VALLDEMOSSA": "07063",
     "ES CASTELL": "07064",
-    # "VILAFRANCA BONANY": "07065",
+    "VILAFRANCA DE BONANY": "07065",
     "ARIANY": "07066",
     "ES MIGJORN GRAN": "07067"
 }
@@ -308,8 +308,10 @@ def extract_units(municipality):
                 batch = []
 
         if batch:
-            pd.DataFrame(batch).to_sql(UNIT_TABLE, con=engine, if_exists='append', index=False)
-            logger.info(f"Inserted remaining {len(batch)} unit records.")
+            df = pd.DataFrame(batch)
+            df.to_sql(UNIT_TABLE, con=engine, if_exists='append', index=False)
+            df.to_csv(os.path.join(OUTPUT_DIR, f"{municipality}_catastro_units.csv"), index=False)
+            logger.info(f"Inserted and exported {len(df)} unit records for {municipality}.")
     except Exception as e:
         logger.error(f"Failed unit extraction for {municipality}: {e}")
 
