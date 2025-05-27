@@ -7,6 +7,6 @@ provincia TEXT,
 codigo_provincia TEXT,
 superficie_parcela NUMERIC,
 uso_parcela TEXT,
-geometry GEOMETRY(POLYGON, 4326),
+geometry GEOMETRY(POLYGON, 25830),
 last_update DATE
 );
