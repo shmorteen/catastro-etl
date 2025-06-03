@@ -27,83 +27,83 @@ logger = logging.getLogger(__name__)
 # Configuration & Constants
 # -----------------------------
 MUNICIPALITIES = {
-    "ALARO": "07001",
-    "ALAIOR": "07002",
-    "ALCUDIA": "07003",
-    "ALGAIDA": "07004",
-    "ANDRATX": "07005",
-    "ARTA": "07006",
-    "BANYALBUFAR": "07007",
-    "BINISSALEM": "07008",
-    "BUGER": "07009",
-    "BUNYOLA": "07010",
-    "CALVIA": "07011",
-    "CAMPANET": "07012",
-    "CAMPOS": "07013",
-    "CAPDEPERA": "07014",
-    "CIUTADELLA DE MENORCA": "07015",
-    "CONSELL": "07016",
-    "COSTITX": "07017",
-    "DEIA": "07018",
+    # "ALARO": "07001",
+    # "ALAIOR": "07002",
+    # "ALCUDIA": "07003",
+    # "ALGAIDA": "07004",
+    # "ANDRATX": "07005",
+    # "ARTA": "07006",
+    # "BANYALBUFAR": "07007",
+    # "BINISSALEM": "07008",
+    # "BUGER": "07009",
+    # "BUNYOLA": "07010",
+    # "CALVIA": "07011",
+    # "CAMPANET": "07012",
+    # "CAMPOS": "07013",
+    # "CAPDEPERA": "07014",
+    # "CIUTADELLA DE MENORCA": "07015",
+    # "CONSELL": "07016",
+    # "COSTITX": "07017",
+    # "DEIA": "07018",
     "ESCORCA": "07019",
-    "ESPORLES": "07020",
-    "ESTELLENCS": "07021",
-    "FELANITX": "07022",
-    "FERRERIES": "07023",
-    "FORMENTERA": "07024",
-    "FORNALUTX": "07025",
-    "EIVISSA": "07026",
-    "INCA": "07027",
-    "LLORET DE VISTALEGRE": "07028",
-    "LLOSETA": "07029",
-    "LLUBI": "07030",
-    "LLUCMAJOR": "07031",
-    "MAO MAHON": "07032",
-    "MANACOR": "07033",
-    "MANCOR DE LA VALL": "07034",
-    "MARIA DE LA SALUT": "07035",
-    "MARRATXI": "07036",
-    "ES MERCADAL": "07037",
-    "MONTUIRI": "07038",
-    "MURO": "07039",
-    "PALMA": "07040",
-    "PETRA": "07041",
-    "POLLEN A": "07042",
-    "PORRERES": "07043",
-    "SA POBLA": "07044",
-    "PUIGPUNYENT": "07045",
-    "SANT ANTONI DE PORTMANY": "07046",
-    "SENCELLES": "07047",
-    "SANT JOSEP DE SA TALAIA": "07048",
-    "SANT JOAN": "07049",
-    "SANT JOAN DE LABRITJA": "07050",
-    "SANT LLOREN DES CARDASSAR": "07051",
-    "SANT LLUIS": "07052",
-    "SANTA EUGENIA": "07053",
-    "SANTA EULARIA DES RIU": "07054",
-    "SANTA MARGALIDA": "07055",
-    "SANTA MARIA DEL CAMI": "07056",
-    "SANTANYI": "07057",
-    "SELVA": "07058",
-    "SES SALINES": "07059",
-    "SINEU": "07060",
-    "SOLLER": "07061",
-    "SON SERVERA": "07062",
-    "VALLDEMOSSA": "07063",
-    "ES CASTELL": "07064",
-    "VILAFRANCA DE BONANY": "07065",
-    "ARIANY": "07066",
-    "ES MIGJORN GRAN": "07067"
+    # "ESPORLES": "07020",
+    # "ESTELLENCS": "07021",
+    # "FELANITX": "07022",
+    # "FERRERIES": "07023",
+    # "FORMENTERA": "07024",
+    # "FORNALUTX": "07025",
+    # "EIVISSA": "07026",
+    # "INCA": "07027",
+    # "LLORET DE VISTALEGRE": "07028",
+    # "LLOSETA": "07029",
+    # "LLUBI": "07030",
+    # "LLUCMAJOR": "07031",
+    # "MAO MAHON": "07032",
+    # "MANACOR": "07033",
+    # "MANCOR DE LA VALL": "07034",
+    # "MARIA DE LA SALUT": "07035",
+    # "MARRATXI": "07036",
+    # "ES MERCADAL": "07037",
+    # "MONTUIRI": "07038",
+    # "MURO": "07039",
+    # "PALMA": "07040",
+    # "PETRA": "07041",
+    # "POLLEN A": "07042",
+    # "PORRERES": "07043",
+    # "SA POBLA": "07044",
+    # "PUIGPUNYENT": "07045",
+    # "SANT ANTONI DE PORTMANY": "07046",
+    # "SENCELLES": "07047",
+    # "SANT JOSEP DE SA TALAIA": "07048",
+    # "SANT JOAN": "07049",
+    # "SANT JOAN DE LABRITJA": "07050",
+    # "SANT LLOREN DES CARDASSAR": "07051",
+    # "SANT LLUIS": "07052",
+    # "SANTA EUGENIA": "07053",
+    # "SANTA EULARIA DES RIU": "07054",
+    # "SANTA MARGALIDA": "07055",
+    # "SANTA MARIA DEL CAMI": "07056",
+    # "SANTANYI": "07057",
+    # "SELVA": "07058",
+    # "SES SALINES": "07059",
+    # "SINEU": "07060",
+    # "SOLLER": "07061",
+    # "SON SERVERA": "07062",
+    # "VALLDEMOSSA": "07063",
+    # "ES CASTELL": "07064",
+    # "VILAFRANCA DE BONANY": "07065",
+    # "ARIANY": "07066",
+    # "ES MIGJORN GRAN": "07067"
 }
 
 BASE_URL = "http://www.catastro.hacienda.gob.es/INSPIRE/{layer}/07/{code}-{name}/A.ES.SDGC.{layer_code}.{code}.zip"
 GML_DIR = "Balearic_GML"
 OUTPUT_DIR = "Enriched_Output"
-POSTGIS_CONN = "postgresql+psycopg2://username:password@localhost:5432/postgis_catastro"
+POSTGIS_CONN = "postgresql+psycopg2://postgres:Abimbola@localhost:5432/postgis_catastro"
 PARCEL_TABLE = "catastro_parcels"
 UNIT_TABLE = "catastro_units"
 SLEEP_BETWEEN_REQUESTS = 15
-BATCH_SAVE_INTERVAL = 100
+BATCH_SAVE_INTERVAL = 10
 
 API_URL = "https://ovc.catastro.meh.es/OVCServWeb/OVCWcfCallejero/COVCCallejero.svc/json/Consulta_DNPRC?RefCat={refcat}"
 HEADERS = {
@@ -310,8 +310,24 @@ def extract_units(municipality):
         if batch:
             df = pd.DataFrame(batch)
             df.to_sql(UNIT_TABLE, con=engine, if_exists='append', index=False)
-            df.to_csv(os.path.join(OUTPUT_DIR, f"{municipality}_catastro_units.csv"), index=False)
-            logger.info(f"Inserted and exported {len(df)} unit records for {municipality}.")
+            logger.info(f"Inserted final {len(df)} unit records for {municipality}.")
+
+            # Add geometry to units
+            with engine.connect() as conn:
+                gdf_parcels = gpd.read_postgis(
+                    f"SELECT referencia_catastral, geometry FROM {PARCEL_TABLE} WHERE municipio = %s",
+                    conn,
+                    params=(municipality,),
+                    geom_col='geometry'
+                )
+
+            df_merged = pd.merge(df, gdf_parcels, left_on="parcel_ref", right_on="referencia_catastral", how="left")
+            df_merged.drop(columns=["referencia_catastral"], errors="ignore", inplace=True)
+            gdf_units = gpd.GeoDataFrame(df_merged, geometry="geometry", crs="EPSG:25830")
+            gdf_units = gdf_units[~gdf_units.geometry.isna()]
+
+            gdf_units.to_file(os.path.join(OUTPUT_DIR, f"{municipality}_catastro_units.geojson"), driver="GeoJSON")
+            logger.info(f"Exported {len(gdf_units)} unit records with geometry.")
     except Exception as e:
         logger.error(f"Failed unit extraction for {municipality}: {e}")
 

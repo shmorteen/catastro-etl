@@ -1,3 +1,5 @@
+CREATE EXTENSION IF NOT EXISTS postgis;
+
 CREATE TABLE catastro_units (
     -- Unique identifiers
     parcel_ref           TEXT,  -- Concatenated pc1+pc2
