@@ -253,33 +253,104 @@ def extract_unit(unit, single=False):
 
 def fetch_units_for_parcel(refcat, retries=3, delay=5):
     """
-    Makes a request to the Catastro API for a given parcel reference.
-    Handles retries, 403 responses, and JSON structure variations.
+    Fetches detailed unit and building data from Catastro API for a given cadastral reference (refcat).
+    
+    This function handles both single-unit and multi-unit JSON responses, extracts usable attributes
+    for cadastral units and associated buildings (if available), and returns structured lists.
+    
+    Args:
+        refcat (str): Cadastral reference (referencia catastral) to query.
+        retries (int): Number of retry attempts on failure or rate-limiting.
+        delay (int): Delay in seconds between retries (with exponential backoff).
+
+    Returns:
+        dict: {
+            'units': list of unit dicts,
+            'buildings': list of building dicts (if present)
+        }
     """
     for attempt in range(retries):
         try:
             response = requests.get(API_URL.format(refcat=refcat), headers=HEADERS, timeout=15)
             if response.status_code == 200:
                 data = response.json()
-                result = []
-                units = data.get("consulta_dnprcResult", {}).get("lrcdnp", {}).get("rcdnp", [])
+                result = {"units": [], "buildings": []}
+                main_data = data.get("consulta_dnprcResult", {})
+
+                # Multi-unit response
+                units = main_data.get("lrcdnp", {}).get("rcdnp", [])
                 if units:
-                    return [extract_unit(u) for u in units]
-                unit = data.get("consulta_dnprcResult", {}).get("bico", {}).get("bi", {})
-                if unit:
-                    return [extract_unit(unit, single=True)]
+                    result["units"] = [extract_unit(u) for u in units]
+                    return result
+
+                # Single unit response
+                bico = main_data.get("bico", {})
+                bi = bico.get("bi", {})
+                if isinstance(bi, list):
+                    bi = bi[0]
+                if bi:
+                    unit_data = extract_unit(bi, single=True)
+                    result["units"] = [unit_data]
+
+                    lcons = bico.get("lcons", [])
+                    if lcons:
+                        logger.info(f"🏗️ Found {len(lcons)} building(s) for parcel {refcat}")
+                        result["buildings"] = extract_buildings_from_lcons(
+                            refcat,
+                            unit_data.get("municipality"),
+                            unit_data.get("province"),
+                            lcons
+                        )
+                    return result
             elif response.status_code == 403:
                 logger.warning(f"Rate limited for {refcat}, sleeping {delay}s.")
                 time.sleep(delay)
         except Exception as e:
             logger.error(f"Failed to fetch units for {refcat}: {e}")
         time.sleep(delay * (2 ** attempt))
-    return []
+    return {"units": [], "buildings": []}
+
+
+def extract_buildings_from_lcons(refcat, municipality, province, lcons):
+    """
+    Parses and extracts individual building data from the `lcons` list provided in Catastro API response.
+    
+    Each building includes attributes like building type, use description, built area,
+    and interior identifiers such as floor, door, and staircase.
+
+    Args:
+        refcat (str): Parcel reference the buildings belong to.
+        municipality (str): Municipality name for reference.
+        province (str): Province name for reference.
+        lcons (list): List of building construction entries from API.
+
+    Returns:
+        list: List of dictionaries representing buildings ready for database insert.
+    """
+    buildings = []
+    for b in lcons:
+        loint = b.get("dt", {}).get("lourb", {}).get("loint", {})
+        dfcons = b.get("dfcons", {})
+        dvcons = b.get("dvcons", {})
+
+        buildings.append({
+            "parcel_ref": refcat,
+            "building_type": b.get("lcd"),
+            "description": dvcons.get("dtip"),
+            "built_area": safe_float(dfcons.get("stl")),
+            "staircase": loint.get("es"),
+            "floor": loint.get("pt"),
+            "door": loint.get("pu"),
+            "municipality": municipality,
+            "province": province,
+            "last_update": datetime.now()
+        })
+    return buildings
 
 def extract_units(municipality):
     """
     For a given municipality, fetches unit-level data for all parcels
-    not yet processed and stores them in the database.
+    not yet processed and stores both unit and building details in the database.
     """
     try:
         with engine.connect() as conn:
@@ -297,18 +368,31 @@ def extract_units(municipality):
                     logger.warning(f"Could not load existing unit refs: {e}")
             refs = [r for r in parcels["referencia_catastral"] if r not in existing_refs]
 
-        batch = []
+        batch_units = []
+        batch_buildings = []  # ✅ Add this line
+
         for i, refcat in enumerate(refs):
             logger.info(f"Fetching units for {refcat} ({i+1}/{len(refs)})")
-            batch.extend(fetch_units_for_parcel(refcat))
-            time.sleep(SLEEP_BETWEEN_REQUESTS)
-            if len(batch) >= BATCH_SAVE_INTERVAL:
-                pd.DataFrame(batch).to_sql(UNIT_TABLE, con=engine, if_exists='append', index=False)
-                logger.info(f"Inserted {len(batch)} unit records.")
-                batch = []
+            result = fetch_units_for_parcel(refcat)
 
-        if batch:
-            df = pd.DataFrame(batch)
+            batch_units.extend(result["units"])
+            batch_buildings.extend(result["buildings"])  # ✅ Collect building data too
+
+            time.sleep(SLEEP_BETWEEN_REQUESTS)
+
+            if len(batch_units) >= BATCH_SAVE_INTERVAL:
+                pd.DataFrame(batch_units).to_sql(UNIT_TABLE, con=engine, if_exists='append', index=False)
+                logger.info(f"Inserted {len(batch_units)} unit records.")
+                batch_units = []
+
+            if len(batch_buildings) >= BATCH_SAVE_INTERVAL:
+                logger.info(f"🧱 Prepared {len(batch_buildings)} building records for insertion.")
+                pd.DataFrame(batch_buildings).to_sql("catastro_buildings", con=engine, if_exists='append', index=False)
+                logger.info(f"Inserted {len(batch_buildings)} building records.")
+                batch_buildings = []
+
+        if batch_units:
+            df = pd.DataFrame(batch_units)
             df.to_sql(UNIT_TABLE, con=engine, if_exists='append', index=False)
             logger.info(f"Inserted final {len(df)} unit records for {municipality}.")
 
@@ -325,11 +409,19 @@ def extract_units(municipality):
             df_merged.drop(columns=["referencia_catastral"], errors="ignore", inplace=True)
             gdf_units = gpd.GeoDataFrame(df_merged, geometry="geometry", crs="EPSG:25830")
             gdf_units = gdf_units[~gdf_units.geometry.isna()]
-
             gdf_units.to_file(os.path.join(OUTPUT_DIR, f"{municipality}_catastro_units.geojson"), driver="GeoJSON")
+            # Save GeoDataFrame (with geometry) to PostGIS
+            gdf_units.to_postgis(UNIT_TABLE, con=engine, if_exists='append', index=False)
             logger.info(f"Exported {len(gdf_units)} unit records with geometry.")
+
+        if batch_buildings:
+            logger.info(f"🧱 Final batch: preparing {len(batch_buildings)} building records for {municipality}")
+            dfb = pd.DataFrame(batch_buildings)
+            dfb.to_sql("catastro_buildings", con=engine, if_exists='append', index=False)
+            logger.info(f"Inserted final {len(dfb)} building records for {municipality}.")
+
     except Exception as e:
-        logger.error(f"Failed unit extraction for {municipality}: {e}")
+        logger.error(f"Failed unit/building extraction for {municipality}: {e}")
 
 # Entrypoint
 if __name__ == "__main__":

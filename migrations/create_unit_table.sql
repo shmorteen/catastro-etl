@@ -47,5 +47,5 @@ CREATE TABLE catastro_units (
     last_update          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
     -- Geometry placeholder (optional, if coordinate mapping available)
-    geometry                 geometry(Point, 25830)
+    geometry                 geometry(Geometry, 25830)
 );
